@@ -1,7 +1,7 @@
 package ssh
 
 import (
-	"crypto/sha256"
+	"fmt"
 	"os"
 	"net"
 
@@ -14,16 +14,26 @@ import (
 )
 
 func hostKeyCallback(hostname string, remote net.Addr, key ssh.PublicKey) error {
-	h := sha256.New()
-	h.Write(key.Marshal())
-	log.Info("Host key", "fingerprint", h.Sum(nil))
+	fingerprint := visualHostKeyFingerprint(key)
 
 	log.Info("Checking host key for", "hostname", hostname)
+	fmt.Printf("Host key fingerprint:\n%s", fingerprint)
+	
 	khcallback, err := knownhosts.New(os.ExpandEnv("$HOME/.ssh/known_hosts"))
 	if err != nil {
-		log.Fatal("Failed to load known_hosts file:", err)
+		log.Error("Failed to load known_hosts file:", err)
 	}
-	return khcallback(hostname, remote, key)
+	
+	if (khcallback != nil) {
+		err = khcallback(hostname, remote, key)
+		if err != nil {
+			log.Error("Host key verification failed:", err)
+			line := knownhosts.Line([]string{knownhosts.HashHostname(knownhosts.Normalize(hostname))}, key)
+			fmt.Printf("To suppress this error, add the following line to your known_hosts file:\n%s\n", line)
+		}
+	}
+
+	return err
 }
 
 func Connect(host string) {
